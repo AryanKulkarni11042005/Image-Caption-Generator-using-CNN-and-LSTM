@@ -1,0 +1,12 @@
+.venv
+.git
+data/
+notebooks/
+artifacts/features.pkl
+artifacts/train.csv
+artifacts/val.csv
+artifacts/test.csv
+__pycache__/
+*.pyc
+.python-version
+uv.lock
