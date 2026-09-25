@@ -14,7 +14,7 @@ import torch
 from PIL import Image
 from torchvision.models import resnet50, ResNet50_Weights
 
-from .model import DecoderLSTM, generate_caption
+from .model import DecoderLSTM, beam_search_caption
 from .vocab import PAD, SOS, EOS, UNK, Vocab  # noqa: F401 -- Vocab needed for unpickling below
 
 
@@ -78,12 +78,22 @@ class CaptionPredictor:
         feature = self.cnn(tensor).squeeze(0).float().cpu()  # (2048,)
         return feature
 
-    def predict(self, image: Image.Image, max_len: int = 25) -> str:
+    def predict(self, image: Image.Image, max_len: int = 25, beam_width: int = 8) -> str:
         """image: a PIL Image (already opened, any mode/size). Returns the
         generated caption as a plain string.
+
+        Uses beam search (default width 8) instead of greedy decoding --
+        an eval sweep across several test images showed width 8 was the
+        first to escape repetition loops (e.g. "a black dog ... a black
+        dog") that greedy and narrower beams (3, 5) still fell into. Width
+        3/5 sometimes matched greedy exactly when the model was highly
+        confident, so 8 was chosen as the best-observed trade-off between
+        search thoroughness and per-request compute cost.
         """
         feature = self._extract_feature(image)
-        caption = generate_caption(feature, self.model, self.vocab, max_len=max_len, device=self.device)
+        caption = beam_search_caption(
+            feature, self.model, self.vocab, beam_width=beam_width, max_len=max_len, device=self.device
+        )
         return caption
 
     def predict_from_bytes(self, image_bytes: bytes, max_len: int = 25) -> str:

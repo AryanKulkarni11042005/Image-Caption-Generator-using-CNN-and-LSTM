@@ -23,7 +23,7 @@ An image captioning model built with a frozen, ImageNet-pretrained ResNet-50 enc
 
 ## Run it yourself
 
-Pull and run the published Docker image — no setup beyond Docker required:
+### Option 1: Docker (no setup beyond Docker required)
 
 ```bash
 docker pull aryankulkarni11042005/caption-gen:latest
@@ -32,6 +32,21 @@ docker run -p 7860:7860 aryankulkarni11042005/caption-gen:latest
 
 Then open `http://localhost:7860` and upload an image.
 
+### Option 2: Run from source (uv)
+
+Requires [uv](https://docs.astral.sh/uv/) and Python 3.12+.
+
+```bash
+git clone https://github.com/AryanKulkarni11042005/caption-gen.git
+cd caption-gen
+uv sync
+uv run python app.py
+```
+
+This launches the Gradio app locally at `http://127.0.0.1:7860`. The trained checkpoint (`artifacts/best_model.pt`) and vocabulary (`artifacts/vocab.pkl`) are already included in the repo, so no training is required to try the model -- `app.py` loads them and the pretrained ResNet-50 encoder on startup.
+
+By default this uses whatever PyTorch backend `uv sync` resolves for your platform (CUDA on a machine with a compatible GPU and driver, CPU otherwise -- see `pyproject.toml`'s `[tool.uv.sources]` for the pinned CUDA index).
+
 ## Tech stack
 
 PyTorch · torchvision (ResNet-50) · Gradio · Docker · uv
@@ -39,6 +54,5 @@ PyTorch · torchvision (ResNet-50) · Gradio · Docker · uv
 ## Future work
 
 - **Scale up to Flickr30k** (~31.8k images, ~159k captions) for more training data and better generalization.
-- **Add an attention mechanism** to the decoder, so the model attends to specific image regions at each decoding step instead of relying on a single global feature vector — should meaningfully improve caption specificity and reduce repetition artifacts seen in the current greedy-decoded outputs.
-- Beam search decoding as an alternative to greedy decoding.
+- **Add an attention mechanism** to the decoder, so the model attends to specific image regions at each decoding step instead of relying on a single global feature vector -- should meaningfully improve caption specificity and reduce repetition artifacts seen in the current greedy-decoded outputs.
 - Permanent public hosting (currently only a temporary tunnel + local Docker image).

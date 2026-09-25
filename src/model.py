@@ -66,3 +66,79 @@ def generate_caption(feature, model, vocab, max_len=25, device=None):
         current_token = torch.tensor([[next_id]], device=device)
 
     return vocab.decode(generated_ids)
+
+
+@torch.no_grad()
+def beam_search_caption(feature, model, vocab, beam_width=3, max_len=25, device=None):
+    """Beam search decoding: keep the top `beam_width` candidate sequences
+    alive at every step, instead of committing to a single best word like
+    generate_caption() does.
+
+    Why this needs more bookkeeping than greedy decoding: each candidate
+    sequence has taken a DIFFERENT path through the LSTM, so each one has
+    its own (h, c) hidden state -- we can't share a single (h, c) across
+    beams the way generate_caption() has only one to track. A "beam" here
+    is (token_ids, cumulative_log_prob, h, c, finished).
+
+    Scores are summed LOG-probabilities, not multiplied raw probabilities:
+    multiplying many numbers < 1 shrinks toward zero and underflows for
+    longer sequences, and it makes beams of different lengths incomparable
+    on a fair footing. Summing logs avoids the underflow and turns the
+    comparison into simple addition.
+    """
+    from .vocab import SOS, EOS
+
+    model.eval()
+    if device is None:
+        device = next(model.parameters()).device
+
+    feature = feature.unsqueeze(0).to(device)  # (1, 2048)
+
+    h0 = model.init_h(feature).unsqueeze(0)  # (1, 1, hidden_dim)
+    c0 = model.init_c(feature).unsqueeze(0)
+
+    # Each beam: (token_ids: list[int], log_prob_sum: float, h, c, finished: bool)
+    beams = [([vocab.stoi[SOS]], 0.0, h0, c0, False)]
+
+    for _ in range(max_len):
+        all_candidates = []
+
+        for token_ids, log_prob_sum, h, c, finished in beams:
+            if finished:
+                # Already hit <eos> -- carry this beam forward unchanged
+                # instead of letting it keep generating past the end.
+                all_candidates.append((token_ids, log_prob_sum, h, c, finished))
+                continue
+
+            last_token = torch.tensor([[token_ids[-1]]], device=device)
+            embedded = model.embedding(last_token)
+            lstm_out, (new_h, new_c) = model.lstm(embedded, (h, c))
+            logits = model.fc_out(lstm_out.squeeze(1))  # (1, vocab_size)
+
+            log_probs = torch.log_softmax(logits, dim=-1).squeeze(0)  # (vocab_size,)
+            top_log_probs, top_ids = log_probs.topk(beam_width)
+
+            for lp, idx in zip(top_log_probs.tolist(), top_ids.tolist()):
+                new_token_ids = token_ids + [idx]
+                new_log_prob_sum = log_prob_sum + lp
+                new_finished = (idx == vocab.stoi[EOS])
+                all_candidates.append((new_token_ids, new_log_prob_sum, new_h, new_c, new_finished))
+
+        # Keep only the top `beam_width` candidates overall (not per-beam) --
+        # this is what lets a globally better sequence win even if it wasn't
+        # the single best choice at an earlier individual step.
+        all_candidates.sort(key=lambda cand: cand[1], reverse=True)
+        beams = all_candidates[:beam_width]
+
+        if all(finished for _, _, _, _, finished in beams):
+            break
+
+    # Best beam = highest cumulative log-prob (beams is already sorted).
+    best_token_ids, _, _, _, _ = beams[0]
+
+    # Strip <sos> and any trailing <eos> before decoding.
+    ids_to_decode = best_token_ids[1:]
+    if ids_to_decode and ids_to_decode[-1] == vocab.stoi[EOS]:
+        ids_to_decode = ids_to_decode[:-1]
+
+    return vocab.decode(ids_to_decode)

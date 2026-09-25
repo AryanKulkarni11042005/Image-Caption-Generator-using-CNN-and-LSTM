@@ -44,7 +44,7 @@ if __name__ == "__main__":
     # so this still binds to 127.0.0.1 for the exact same dev experience as before.
     in_docker = os.environ.get("IN_DOCKER") == "1"
     demo.launch(
-        share=False,
+        share=True,
         server_name="0.0.0.0" if in_docker else "127.0.0.1",
         server_port=7860,
     )
